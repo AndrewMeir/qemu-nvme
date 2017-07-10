@@ -689,14 +689,18 @@ static uint16_t nvme_rw_check_req(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
             offsetof(NvmeRwCmd, nlb), nlb, ns->id);
         return NVME_INVALID_FIELD | NVME_DNR;
     }
+#if 0
     if (meta_size) {
+        fprintf(stderr,"%s 0\n",__FUNCTION__);
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
             offsetof(NvmeRwCmd, control), ctrl, ns->id);
         return NVME_INVALID_FIELD | NVME_DNR;
     }
+#endif
     if ((ctrl & NVME_RW_PRINFO_PRACT) && !(ns->id_ns.dps & DPS_TYPE_MASK)) {
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
             offsetof(NvmeRwCmd, control), ctrl, ns->id);
+        fprintf(stderr,"%s 1\n",__FUNCTION__);
         /* Not contemplated in LightNVM for now */
         if (lnvm_dev(n))
             return 0;
