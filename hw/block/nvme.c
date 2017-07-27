@@ -1274,7 +1274,7 @@ static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
         return NVME_INVALID_FIELD | NVME_DNR;
     }
     req->slba = slba;
-    req->meta_size = 0;
+    req->meta_size = meta_size;
     req->status = NVME_SUCCESS;
     req->nlb = nlb;
     req->ns = ns;
