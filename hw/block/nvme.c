@@ -1198,7 +1198,7 @@ static uint16_t lnvm_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
             print_ppa(ln, psl[i]);
 
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-            offsetof(NvmeRwCmd, prp1), 0, ns->id);
+            offsetof(NvmeRwCmd, dptr.prp1), 0, ns->id);
         err = NVME_INVALID_FIELD | NVME_DNR;
         goto fail_free_msl;
     }
@@ -1245,8 +1245,8 @@ static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint16_t ctrl = 0;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
-    uint64_t prp1 = le64_to_cpu(rw->prp1);
-    uint64_t prp2 = le64_to_cpu(rw->prp2);
+    uint64_t prp1 = le64_to_cpu(rw->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(rw->dptr.prp2);
     uint64_t slba;
     uint64_t elba;
     const uint8_t lba_index = NVME_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
@@ -1270,7 +1270,7 @@ static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 
     if (nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-            offsetof(NvmeRwCmd, prp1), 0, ns->id);
+            offsetof(NvmeRwCmd, dptr.prp1), 0, ns->id);
         return NVME_INVALID_FIELD | NVME_DNR;
     }
     req->slba = slba;
@@ -1310,8 +1310,8 @@ static uint16_t nvme_dsm(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 {
     uint32_t dw10 = le32_to_cpu(cmd->cdw10);
     uint32_t dw11 = le32_to_cpu(cmd->cdw11);
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
 
     if (dw11 & NVME_DSMGMT_AD) {
         uint16_t nr = (dw10 & 0xff) + 1;
@@ -1325,7 +1325,7 @@ static uint16_t nvme_dsm(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
 
         if (nvme_dma_write_prp(n, (uint8_t *)range, sizeof(range), prp1, prp2)) {
             nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-                offsetof(NvmeCmd, prp1), 0, ns->id);
+                offsetof(NvmeCmd, dptr.prp1), 0, ns->id);
             return NVME_INVALID_FIELD | NVME_DNR;
         }
 
@@ -1358,8 +1358,8 @@ static uint16_t nvme_compare(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
     uint64_t slba = le64_to_cpu(rw->slba);
-    uint64_t prp1 = le64_to_cpu(rw->prp1);
-    uint64_t prp2 = le64_to_cpu(rw->prp2);
+    uint64_t prp1 = le64_to_cpu(rw->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(rw->dptr.prp2);
 
     uint64_t elba = slba + nlb;
     uint8_t lba_index = NVME_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
@@ -1380,7 +1380,7 @@ static uint16_t nvme_compare(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     }
     if (nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
-            offsetof(NvmeRwCmd, prp1), 0, ns->id);
+            offsetof(NvmeRwCmd, dptr.prp1), 0, ns->id);
         return NVME_INVALID_FIELD | NVME_DNR;
     }
     if (find_next_bit(ns->uncorrectable, elba, slba) < elba) {
@@ -1484,8 +1484,8 @@ static uint16_t lnvm_identity(NvmeCtrl *n, NvmeCmd *cmd)
 {
     NvmeIdentify *c = (NvmeIdentify *)cmd;
     uint32_t nsid = le32_to_cpu(c->nsid);
-    uint64_t prp1 = le64_to_cpu(c->prp1);
-    uint64_t prp2 = le64_to_cpu(c->prp2);
+    uint64_t prp1 = le64_to_cpu(c->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(c->dptr.prp2);
 
     if (nsid == 0 || nsid > n->num_namespaces) {
         return NVME_INVALID_NSID | NVME_DNR;
@@ -2087,8 +2087,8 @@ static uint16_t nvme_identify(NvmeCtrl *n, NvmeCmd *cmd)
     NvmeIdentify *c = (NvmeIdentify *)cmd;
     uint32_t cns  = le32_to_cpu(c->cns);
     uint32_t nsid = le32_to_cpu(c->nsid);
-    uint64_t prp1 = le64_to_cpu(c->prp1);
-    uint64_t prp2 = le64_to_cpu(c->prp2);
+    uint64_t prp1 = le64_to_cpu(c->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(c->dptr.prp2);
 
     if (cns == 1) {
         return nvme_dma_read_prp(n, (uint8_t *)&n->id_ctrl, sizeof(n->id_ctrl),
@@ -2111,8 +2111,8 @@ static uint16_t nvme_get_feature(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     uint32_t dw10 = le32_to_cpu(cmd->cdw10);
     uint32_t dw11 = le32_to_cpu(cmd->cdw11);
     uint32_t nsid = le32_to_cpu(cmd->nsid);
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
 
     switch (dw10) {
     case NVME_ARBITRATION:
@@ -2172,8 +2172,8 @@ static uint16_t nvme_set_feature(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
     uint32_t dw10 = le32_to_cpu(cmd->cdw10);
     uint32_t dw11 = le32_to_cpu(cmd->cdw11);
     uint32_t nsid = le32_to_cpu(cmd->nsid);
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
 
     switch (dw10) {
     case NVME_ARBITRATION:
@@ -2239,8 +2239,8 @@ static uint16_t nvme_set_feature(NvmeCtrl *n, NvmeCmd *cmd, NvmeRequest *req)
 static uint16_t nvme_fw_log_info(NvmeCtrl *n, NvmeCmd *cmd, uint32_t buf_len)
 {
     uint32_t trans_len;
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
     NvmeFwSlotInfoLog fw_log;
 
     trans_len = MIN(sizeof(fw_log), buf_len);
@@ -2250,8 +2250,8 @@ static uint16_t nvme_fw_log_info(NvmeCtrl *n, NvmeCmd *cmd, uint32_t buf_len)
 static uint16_t nvme_error_log_info(NvmeCtrl *n, NvmeCmd *cmd, uint32_t buf_len)
 {
     uint32_t trans_len;
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
 
     trans_len = MIN(sizeof(*n->elpes) * n->elpe, buf_len);
     n->aer_mask &= ~(1 << NVME_AER_TYPE_ERROR);
@@ -2263,8 +2263,8 @@ static uint16_t nvme_error_log_info(NvmeCtrl *n, NvmeCmd *cmd, uint32_t buf_len)
 
 static uint16_t nvme_smart_info(NvmeCtrl *n, NvmeCmd *cmd, uint32_t buf_len)
 {
-    uint64_t prp1 = le64_to_cpu(cmd->prp1);
-    uint64_t prp2 = le64_to_cpu(cmd->prp2);
+    uint64_t prp1 = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t prp2 = le64_to_cpu(cmd->dptr.prp2);
 
     uint32_t trans_len;
     time_t current_seconds;
@@ -2535,8 +2535,8 @@ static uint16_t nvme_format(NvmeCtrl *n, NvmeCmd *cmd)
 
 static uint16_t nvme_set_db_memory(NvmeCtrl *n, const NvmeCmd *cmd)
 {
-    uint64_t db_addr = le64_to_cpu(cmd->prp1);
-    uint64_t eventidx_addr = le64_to_cpu(cmd->prp2);
+    uint64_t db_addr = le64_to_cpu(cmd->dptr.prp1);
+    uint64_t eventidx_addr = le64_to_cpu(cmd->dptr.prp2);
     int i;
 
     /* Addresses should not be NULL and should be page aligned. */
