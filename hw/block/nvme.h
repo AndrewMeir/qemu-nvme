@@ -207,6 +207,14 @@ enum NvmeCmbszMask {
 
 #define NVME_CMBSZ_GETSIZE(cmbsz) (NVME_CMBSZ_SZ(cmbsz) * (1<<(12+4*NVME_CMBSZ_SZU(cmbsz))))
 
+enum {
+	NVME_SGL_FMT_DATA_DESC		= 0x00,
+	NVME_SGL_FMT_BITBUCKET_DESC	= 0x01,
+	NVME_SGL_FMT_SEG_DESC		= 0x02,
+	NVME_SGL_FMT_LAST_SEG_DESC	= 0x03,
+	NVME_KEY_SGL_FMT_DATA_DESC	= 0x04,
+};
+
 typedef struct NvmeSGLDesc {
     uint64_t    addr;
     uint32_t    length;
@@ -230,8 +238,18 @@ typedef union NvmeDataPtr{
     NvmeKeyedSGLDesc    ksgl;
 } NvmeDataPtr;
 
+enum {
+	NVME_CMD_FUSE_FIRST	= (1 << 0),
+	NVME_CMD_FUSE_SECOND	= (1 << 1),
+
+	NVME_CMD_SGL_METABUF	= (1 << 6),
+	NVME_CMD_SGL_METASEG	= (1 << 7),
+	NVME_CMD_SGL_ALL	= NVME_CMD_SGL_METABUF | NVME_CMD_SGL_METASEG,
+};
+
 #define _NVME_CMD_FLAGS_FUSE_MASK    ((1 << 0)  + (1 << 1))
 #define _NVME_CMD_FLAGS_PSDT_MASK    ((1 << 15) + (1 << 14))
+#define NVME_CMD_FLAGS_SGLS(flags)  ((flags) & NVME_CMD_SGL_ALL)
 #define NVME_CMD_FLAGS_FUSE(flags)  ((flags) & _NVME_CMD_FLAGS_FUSE_MASK)
 #define NVME_CMD_FLAGS_PSDT(flags)  ((flags) & _NVME_CMD_FLAGS_PSDT_MASK)
 
@@ -1170,6 +1188,7 @@ typedef struct NvmeCtrl {
     uint8_t     max_sqes;
     uint8_t     max_cqes;
     uint8_t     meta;
+    uint8_t     sgls;
     uint8_t     vwc;
     uint8_t     mc;
     uint8_t     dpc;

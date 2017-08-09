@@ -54,6 +54,7 @@
  *  dps=<int>        : Data protection settings, Default:0
  *  mc=<int>         : Meta-data capabilities, Default:0
  *  meta=<int>       : Meta-data size, Default:0
+ *  sgls=<int>       : Scatter gather list support, Default: 0
  *  oncs=<oncs>      : Optional NVMe command support, Default:DSM
  *  oacs=<oacs>      : Optional Admin command support, Default:Format
  *  cmbsz=<cmbsz>    : Controller Memory Buffer CMBSZ register, Default:0
@@ -305,6 +306,79 @@ static hwaddr nvme_discontig(uint64_t *dma_addr, uint16_t page_size,
     uint16_t index_in_prp = queue_idx % entries_per_page;
 
     return dma_addr[prp_index] + index_in_prp * entry_size;
+}
+static uint16_t nvme_map_sgl(QEMUSGList *qsg, QEMUIOVector *iov,
+                             uint64_t sgl_addr, uint32_t sgl_length, uint8_t sgl_type, uint32_t len, NvmeCtrl *n)
+{
+    bool cmb = false;
+    if (!sgl_length | !sgl_addr | !len) {
+    	fprintf(stderr,"%s invalid args: addr 0x%lx, len %u, sgl_length %u \n",__func__,sgl_addr, len, sgl_length);
+        return NVME_INVALID_FIELD | NVME_DNR;
+    } else {
+        pci_dma_sglist_init(qsg, &n->parent_obj, n->page_size/16); // total guess at the alloc size hint
+    }
+    uint32_t remaining = len;
+    if (sgl_length > remaining) {
+    	remaining = sgl_length;
+    }
+    // Create the first entry
+    uint32_t max_sg_entries = 1;
+    NvmeSGLDesc* sg_list = malloc(max_sg_entries * sizeof(NvmeSGLDesc));
+    memset(sg_list, 0, sizeof(NvmeSGLDesc));
+    sg_list[0].addr = sgl_addr;
+    sg_list[0].length = sgl_length;
+    sg_list[0].type = sgl_type;
+	//fprintf(stderr,"%s entry, first descriptor, len: %u sgl_length %u \n",__func__,len, sgl_length);
+
+    NvmeSGLDesc* current = sg_list;
+    while (remaining) {
+       	if (current >= &sg_list[max_sg_entries]) {
+			fprintf(stderr,"%s sg_list overflow\n",__func__);
+			break;
+		}
+       	if (!current->addr) {
+   			fprintf(stderr,"%s malformed descriptor\n",__func__);
+   			break;
+    	}
+     	if (current->type >> 4 == NVME_SGL_FMT_DATA_DESC) {
+    		if (remaining >= current->length) {
+    			remaining -= current->length;
+       			//fprintf(stderr,"%s processing data descriptor @ 0x%lx\n",__func__,current->addr);
+                qemu_sglist_add(qsg, current->addr, current->length);
+                ++current;
+    		} else {
+       			fprintf(stderr,"%s length overflow processing data descriptor, remaining %u, length %u\n",__func__,remaining, current->length);
+       			break;
+    		}
+    	} else if (current->type >> 4 == NVME_SGL_FMT_BITBUCKET_DESC) {
+    		++current;
+    		fprintf(stderr,"%s skipping unsupported bitbucket descriptor\n",__func__);
+    	} else if ((current->type >> 4 == NVME_SGL_FMT_SEG_DESC) || (current->type >> 4 == NVME_SGL_FMT_LAST_SEG_DESC)) {
+    		uint64_t addr = current->addr;
+    		uint32_t length = current->length;
+   			//fprintf(stderr,"%s creating new segment, length %u\n",__func__, current->length);
+    		free(sg_list);
+    		max_sg_entries = length / sizeof(NvmeSGLDesc);
+    	    sg_list = malloc(max_sg_entries * sizeof(NvmeSGLDesc));
+    	    memset(sg_list, 0, max_sg_entries * sizeof(NvmeSGLDesc));
+    		current = sg_list;
+            nvme_addr_read(n, addr, (void *)sg_list, length);
+    	}
+    }
+
+    free(sg_list);
+    if (remaining == 0)
+    	return NVME_SUCCESS;
+    else
+		fprintf(stderr,"%s residual unprocessed data %u\n",__func__,remaining);
+
+// unmap:
+    if (!cmb){
+        qemu_sglist_destroy(qsg);
+    } else {
+        qemu_iovec_destroy(iov);
+    }
+    return NVME_INVALID_FIELD | NVME_DNR;
 }
 
 static uint16_t nvme_map_prp(QEMUSGList *qsg, QEMUIOVector *iov,
@@ -1249,8 +1323,6 @@ static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     NvmeRwCmd *rw = (NvmeRwCmd *)cmd;
     uint16_t ctrl = 0;
     uint32_t nlb  = le16_to_cpu(rw->nlb) + 1;
-    uint64_t prp1 = le64_to_cpu(rw->dptr.prp1);
-    uint64_t prp2 = le64_to_cpu(rw->dptr.prp2);
     uint64_t slba;
     uint64_t elba;
     const uint8_t lba_index = NVME_ID_NS_FLBAS_INDEX(ns->id_ns.flbas);
@@ -1272,7 +1344,21 @@ static uint16_t nvme_rw(NvmeCtrl *n, NvmeNamespace *ns, NvmeCmd *cmd,
     if (err)
         return err;
 
-    if (nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n)) {
+    bool is_sgls = NVME_CMD_FLAGS_SGLS(rw->flags);
+
+    uint16_t map_err;
+    if (is_sgls) {
+        uint64_t addr = le64_to_cpu(rw->dptr.sgl.addr);
+        uint32_t length = le32_to_cpu(rw->dptr.sgl.length);
+        uint8_t type = rw->dptr.sgl.type;
+    	map_err = nvme_map_sgl(&req->qsg, &req->iov, addr, length, type , data_size, n);
+    } else {
+        uint64_t prp1 = le64_to_cpu(rw->dptr.prp1);
+        uint64_t prp2 = le64_to_cpu(rw->dptr.prp2);
+    	map_err = nvme_map_prp(&req->qsg, &req->iov, prp1, prp2, data_size, n);
+    }
+
+    if (map_err) {
         nvme_set_error_page(n, req->sq->sqid, cmd->cid, NVME_INVALID_FIELD,
             offsetof(NvmeRwCmd, dptr.prp1), 0, ns->id);
         return NVME_INVALID_FIELD | NVME_DNR;
@@ -3337,9 +3423,8 @@ static void nvme_init_ctrl(NvmeCtrl *n)
     id->psd[0].mp = cpu_to_le16(0x9c4);
     id->psd[0].enlat = cpu_to_le32(0x10);
     id->psd[0].exlat = cpu_to_le32(0x4);
-    /* TODO: Support SGL in NVMe-over-PCIE in both qemu and kernel */
-    id->sgls = 0;
-
+    id->sgls = n->sgls;
+    fprintf(stderr,"%s sgls %u\n",__func__,id->sgls);
 
     n->features.arbitration     = 0x1f0f0706;
     n->features.power_mgmt      = 0;
@@ -3512,6 +3597,7 @@ static Property nvme_props[] = {
     DEFINE_PROP_UINT8("dps", NvmeCtrl, dps, 0),
     DEFINE_PROP_UINT8("mc", NvmeCtrl, mc, 0),
     DEFINE_PROP_UINT8("meta", NvmeCtrl, meta, 0),
+    DEFINE_PROP_UINT8("sgls", NvmeCtrl, sgls, 0),
     DEFINE_PROP_UINT32("cmbsz", NvmeCtrl, cmbsz, 0),
     DEFINE_PROP_UINT32("cmbloc", NvmeCtrl, cmbloc, 0),
     DEFINE_PROP_UINT16("oacs", NvmeCtrl, oacs, NVME_OACS_FORMAT),
