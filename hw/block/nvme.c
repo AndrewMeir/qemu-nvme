@@ -310,7 +310,7 @@ static hwaddr nvme_discontig(uint64_t *dma_addr, uint16_t page_size,
 static uint16_t nvme_map_sgl(QEMUSGList *qsg, QEMUIOVector *iov,
                              uint64_t sgl_addr, uint32_t sgl_length, uint8_t sgl_type, uint32_t len, NvmeCtrl *n)
 {
-    bool cmb = false;
+    bool cmb = false; // TODO can we ever support CMBs in SGL transfers?
     if (!sgl_length | !sgl_addr | !len) {
     	fprintf(stderr,"%s invalid args: addr 0x%lx, len %u, sgl_length %u \n",__func__,sgl_addr, len, sgl_length);
         return NVME_INVALID_FIELD | NVME_DNR;
@@ -352,7 +352,7 @@ static uint16_t nvme_map_sgl(QEMUSGList *qsg, QEMUIOVector *iov,
     		}
     	} else if (current->type >> 4 == NVME_SGL_FMT_BITBUCKET_DESC) {
     		++current;
-    		fprintf(stderr,"%s skipping unsupported bitbucket descriptor\n",__func__);
+    		//fprintf(stderr,"%s skipping bitbucket descriptor\n",__func__);
     	} else if ((current->type >> 4 == NVME_SGL_FMT_SEG_DESC) || (current->type >> 4 == NVME_SGL_FMT_LAST_SEG_DESC)) {
     		uint64_t addr = current->addr;
     		uint32_t length = current->length;
@@ -3424,7 +3424,6 @@ static void nvme_init_ctrl(NvmeCtrl *n)
     id->psd[0].enlat = cpu_to_le32(0x10);
     id->psd[0].exlat = cpu_to_le32(0x4);
     id->sgls = n->sgls;
-    fprintf(stderr,"%s sgls %u\n",__func__,id->sgls);
 
     n->features.arbitration     = 0x1f0f0706;
     n->features.power_mgmt      = 0;
